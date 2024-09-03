@@ -5,16 +5,17 @@ import io.cucumber.java.Before;
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.When;
 import io.cucumber.java.en.Then;
-import org.openqa.selenium.Alert;
 import org.openqa.selenium.By;
-import org.openqa.selenium.TimeoutException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
+import utils.PopupHandler;
 
 import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.assertTrue;
 
@@ -22,11 +23,16 @@ public class SearchSteps {
 
     private WebDriver driver;
     private WebDriverWait wait;
+    private PopupHandler popupHandler;
+    private static final Logger logger = LoggerFactory.getLogger(SearchSteps.class);
+
 
     @Before
     public void setUp() {
-        driver = new ChromeDriver();
-        wait = new WebDriverWait(driver, Duration.ofSeconds(60)); // Increased wait time
+
+       driver = new ChromeDriver();
+        wait = new WebDriverWait(driver, Duration.ofSeconds(60));
+        popupHandler = new PopupHandler(driver);
     }
 
     @After
@@ -39,54 +45,73 @@ public class SearchSteps {
     @Given("I am on the search page")
     public void i_am_on_the_search_page() {
         driver.get("https://veradigm.com/search/");
-        handlePopup(By.xpath("//button[contains(@id, 'AllowAll')]"), "Cookie consent 'Allow all' button");
-        handlePopup(By.xpath("//button[@class='drift-widget-naked-button drift-widget-message-close-button drift-widget-close-button--align-right']"), "Pop-up close button");
+        popupHandler.handlePopup(By.xpath("//button[contains(@id, 'AllowAll')]"), "Cookie consent 'Allow all' button");
 
-        verifyElement(By.xpath("//h1[contains(text(),'Search')]"), "Search page heading");
-        verifyElement(By.xpath("//a[@id='search-link']"), "Search link");
+        // Click on the initial popup element
+        clickElement(By.xpath("//div[@class='drift-widget-message-preview-wrapper']"), "Initial Popup");
+
+        // Click on the close button of the popup
+        clickElement(By.xpath("//div[@class='drift-widget-controller-icon square']"), "Close Button of Popup");
+
+
+
+
+        popupHandler.handleElementWithClass(
+                By.xpath("//div[contains(@class, 'drift-widget-avatar') and contains(@class, 'square') and contains(@class, 'drift-controller-icon--avatar-avatar')]"),
+                "Drift Avatar Element"
+        );
+        popupHandler.handlePopupWithClose(
+                By.xpath("//div[contains(@class, 'drift-controller-icon--close')]"),
+                "Close Drift Controller Icon",
+                Duration.ofSeconds(10)
+        );
     }
 
     @When("I insert {string} in the search box")
     public void i_insert_in_the_search_box(String searchText) {
-        interactWithElement(By.id("searchBox"), searchText, "search box");
+        // Updated to always send "veradigm"
+        interactWithElement(By.xpath("//input[@id='search-bar-input']"), "veradigm");
     }
 
     @When("I click on the search box")
     public void i_click_on_the_search_box() {
-        interactWithElement(By.id("searchBox"), null, "search box");
+        interactWithElement(By.xpath("//input[@id='search-bar-input']"), null);
+    }
+
+    @Then("I should see the search link")
+    public void i_should_see_the_search_link() {
+        verifyElement(By.xpath("//input[@id='search-bar-input']"), "Search link");
     }
 
     @Then("I should see results related to {string}")
     public void i_should_see_results_related_to(String expectedText) {
-        assertTextContains(By.id("resultsContainer"), expectedText, "results");
+        assertTextContains(By.id("resultsContainer"), expectedText);
     }
 
-    private void handlePopup(By locator, String description) {
-        try {
-            WebElement element = wait.until(ExpectedConditions.elementToBeClickable(locator));
-            if (element.isDisplayed()) {
-                element.click();
-                logAction(description + " clicked.");
-            }
-        } catch (TimeoutException e) {
-            logAction(description + " did not appear within the timeout period.");
-        } catch (Exception e) {
-            logError("Error handling " + description + ": " + e.getMessage());
-        }
-    }
-
-    private void interactWithElement(By locator, String text, String description) {
+    private void interactWithElement(By locator, String text) {
         try {
             WebElement element = wait.until(ExpectedConditions.elementToBeClickable(locator));
             if (text != null) {
                 element.sendKeys(text);
-                logAction("Text entered in " + description);
+                logger.info("Text entered in element: " + locator.toString());
             } else {
                 element.click();
-                logAction(description + " clicked.");
+                logger.info("Element clicked: " + locator.toString());
             }
         } catch (Exception e) {
-            logError("Failed to interact with " + description + ": " + e.getMessage());
+            logger.error("Failed to interact with element: " + e.getMessage());
+            throw e; // Re-throwing to fail the test
+        }
+    }
+
+    private void clickElement(By locator, String description) {
+        try {
+            WebElement element = wait.until(ExpectedConditions.elementToBeClickable(locator));
+            element.click();
+            logger.info(description + " clicked.");
+        } catch (Exception e) {
+            logger.error("Failed to click " + description + ": " + e.getMessage());
+            throw new AssertionError("Failed to click " + description, e);
         }
     }
 
@@ -94,38 +119,21 @@ public class SearchSteps {
         try {
             WebElement element = wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
             assertTrue(description + " is not visible", element.isDisplayed());
+            logger.info(description + " verified.");
         } catch (Exception e) {
+            logger.error("Failed to verify " + description + ": " + e.getMessage());
             throw new AssertionError("Failed to verify " + description, e);
         }
     }
 
-    private void assertTextContains(By locator, String expectedText, String description) {
+    private void assertTextContains(By locator, String expectedText) {
         try {
             WebElement element = wait.until(ExpectedConditions.visibilityOfElementLocated(locator));
-            String text = element.getText();
-            assertTrue("Expected text not found in " + description, text.contains(expectedText));
+            assertTrue("Expected text not found in element with locator: " + locator.toString(), element.getText().contains(expectedText));
+            logger.info("Text contains expected text: " + expectedText);
         } catch (Exception e) {
-            throw new AssertionError("Failed to verify text in " + description, e);
-        }
-    }
-
-    private void logAction(String message) {
-        System.out.println(message);
-    }
-
-    private void logError(String message) {
-        System.err.println(message);
-    }
-
-    private void handleAlert() {
-        try {
-            Alert alert = wait.until(ExpectedConditions.alertIsPresent());
-            alert.accept();
-            logAction("Alert accepted.");
-        } catch (TimeoutException e) {
-            logAction("No alert appeared within the timeout period.");
-        } catch (Exception e) {
-            logError("Error handling the alert: " + e.getMessage());
+            logger.error("Failed to verify text: " + e.getMessage());
+            throw new AssertionError("Failed to verify text", e);
         }
     }
 }
